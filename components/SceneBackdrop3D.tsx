@@ -1,19 +1,71 @@
-
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Box, Icosahedron, Edges, Environment } from '@react-three/drei';
+import { Box, Icosahedron, Edges, Environment, Points, PointMaterial } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion';
 
-const SceneContent: React.FC<{ isIntersecting: boolean }> = ({ isIntersecting }) => {
-    const groupRef = useRef<THREE.Group>(null);
-    const prefersReducedMotion = usePrefersReducedMotion();
+// Particle Component
+const SceneParticles: React.FC<{ count: number, themeColor: string }> = ({ count, themeColor }) => {
+    const pointsRef = useRef<THREE.Points>(null);
+
+    // Generate random points in a sphere volume once
+    const [sphere] = useState(() => {
+        const numPoints = count;
+        const positions = new Float32Array(numPoints * 3);
+        const radius = 3;
+        for (let i = 0; i < numPoints; i++) {
+            const i3 = i * 3;
+            const u = Math.random();
+            const v = Math.random();
+            const theta = 2 * Math.PI * u;
+            const phi = Math.acos(2 * v - 1);
+            const r = radius * Math.cbrt(Math.random()); // Distribute points within a sphere volume
+            positions[i3] = r * Math.sin(phi) * Math.cos(theta);
+            positions[i3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+            positions[i3 + 2] = r * Math.cos(phi);
+        }
+        return positions;
+    });
 
     useFrame((_, delta) => {
-        if (groupRef.current && isIntersecting && !prefersReducedMotion) {
-            groupRef.current.rotation.y += delta * 0.15;
-            groupRef.current.rotation.x += delta * 0.1;
+        if (pointsRef.current) {
+            pointsRef.current.rotation.y += delta * 0.02; // Slow rotation for ambience
+        }
+    });
+
+    return (
+        <Points ref={pointsRef} positions={sphere} stride={3} frustumCulled={false}>
+            <PointMaterial
+                transparent
+                color={themeColor}
+                size={0.012}
+                sizeAttenuation={true}
+                depthWrite={false}
+            />
+        </Points>
+    );
+};
+
+
+const SceneContent: React.FC<{ isIntersecting: boolean }> = ({ isIntersecting }) => {
+    const boxRef = useRef<THREE.Mesh>(null);
+    const icosaRef = useRef<THREE.Mesh>(null);
+    const prefersReducedMotion = usePrefersReducedMotion();
+
+    useFrame(({ clock }, delta) => {
+        if (isIntersecting && !prefersReducedMotion) {
+            if (boxRef.current) {
+                boxRef.current.rotation.y += delta * 0.1;
+                boxRef.current.rotation.x += delta * 0.05;
+            }
+            if (icosaRef.current) {
+                icosaRef.current.rotation.y += delta * 0.2;
+                icosaRef.current.rotation.z += delta * 0.15;
+                // Add a gentle "breathing" animation
+                const scale = 1 + Math.sin(clock.getElapsedTime() * 1.2) * 0.05;
+                icosaRef.current.scale.set(scale, scale, scale);
+            }
         }
     });
 
@@ -21,16 +73,16 @@ const SceneContent: React.FC<{ isIntersecting: boolean }> = ({ isIntersecting })
 
     return (
         <>
-            <group ref={groupRef}>
-                <Box args={[2.5, 2.5, 2.5]} position={[0, 0, 0]}>
-                    <meshStandardMaterial color="#111" transparent opacity={0} />
-                    <Edges scale={1} threshold={15} color={new THREE.Color(themeColor).multiplyScalar(0.3)} />
-                </Box>
-                <Icosahedron args={[1, 0]} position={[0, 0, 0]}>
-                     <meshStandardMaterial color="#111" transparent opacity={0} />
-                    <Edges scale={1} threshold={15} color={new THREE.Color(themeColor).multiplyScalar(0.8)} />
-                </Icosahedron>
-            </group>
+            <Box ref={boxRef} args={[2.5, 2.5, 2.5]} position={[0, 0, 0]}>
+                <meshStandardMaterial color="#111" transparent opacity={0} />
+                <Edges scale={1} threshold={15} color={new THREE.Color(themeColor).multiplyScalar(0.3)} />
+            </Box>
+            <Icosahedron ref={icosaRef} args={[1, 1]} position={[0, 0, 0]}>
+                 <meshStandardMaterial color="#111" transparent opacity={0} />
+                <Edges scale={1} threshold={15} color={new THREE.Color(themeColor).multiplyScalar(0.8)} />
+            </Icosahedron>
+            
+            {isIntersecting && !prefersReducedMotion && <SceneParticles count={4000} themeColor={themeColor} />}
 
             <Environment preset="studio" />
             <pointLight position={[10, 10, 10]} intensity={150} color={themeColor} />
@@ -52,9 +104,8 @@ const SceneBacktop3D: React.FC<{ isIntersecting: boolean }> = ({ isIntersecting 
             >
                 <SceneContent isIntersecting={isIntersecting} />
                 {!prefersReducedMotion && (
-                    // FIX: The 'disableNormalPass' prop is deprecated. Replaced with 'enableNormalPass={false}' for equivalent functionality.
                     <EffectComposer enableNormalPass={false}>
-                        <Bloom intensity={0.2} mipmapBlur luminanceThreshold={0.5} />
+                        <Bloom intensity={0.25} mipmapBlur luminanceThreshold={0.5} />
                         <Vignette eskil={false} offset={0.1} darkness={0.8} />
                     </EffectComposer>
                 )}
